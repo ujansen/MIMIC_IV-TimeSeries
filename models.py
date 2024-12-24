@@ -33,7 +33,11 @@ class TimeSeriesModel(nn.Module):
         self.demo_emb = nn.Sequential(nn.Linear(args.D, args.hid_dim*2),
                                         nn.Tanh(),
                                         nn.Linear(args.hid_dim*2, args.hid_dim))
-        ts_demo_emb_size = args.hid_dim*2
+        self.day_emb = nn.Linear(1, args.hid_dim)
+
+        # Change to 2 when including demo/day embedding
+        ts_demo_emb_size = args.hid_dim*1
+        
         self.pretrain = args.pretrain==1
         self.finetune = args.load_ckpt_path is not None
         if self.pretrain:

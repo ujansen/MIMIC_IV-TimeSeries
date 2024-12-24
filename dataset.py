@@ -6,7 +6,7 @@ from tqdm import tqdm
 import torch
 from utils import CycleIndex
 import os
-
+import pandas as pd
 
 class Dataset:
     def __init__(self, args) -> None:
@@ -31,7 +31,7 @@ class Dataset:
         args.logger.write('\nPreparing dataset mimic_iv for training')
 
         # Filter labeled data in the first 24h and clean outliers
-        data = data.loc[(data.minute >= 0) & (data.minute <= 24 * 60)]
+        data = data.loc[(data.minute >= 0) & (data.minute <= 5 * 24 * 60)]
         data.loc[(data.variable == 'Age') & (data.value > 200), 'value'] = 91.4
 
         # Retain variables only seen in the training set
@@ -164,7 +164,7 @@ class Dataset:
             data = data.merge(means_stds.reset_index(), on='variable', how='left')
             data['value'] = (data['value'] - data['mean']) / data['std']
             variables = data.variable.unique()
-            self.max_minute = 24 * 60  # Maximum observation window for mimic_iv
+            self.max_minute = 12 * 60  # Maximum observation window for mimic_iv
         
 
         if not(args.finetune):
@@ -183,6 +183,7 @@ class Dataset:
             times[row.ts_ind].append(row.minute)
             varis[row.ts_ind].append(self.var_to_ind[row.variable])
         self.values, self.times, self.varis = values, times, varis
+
 
     def create_sliding_windows(self, data, window_size=720, step_size=360):
         """
@@ -206,10 +207,15 @@ class Dataset:
                 window_data = group[(group['minute'] >= start) & (group['minute'] < end)]
                 if len(window_data) < 0.8 * window_size:  # Keep windows with at least 80% coverage
                     continue
+                
+                # Compute ICU Day
+                day = start // (24 * 60)
+
                 sliding_windows.append({
                     'ts_id': ts_id,
                     'ts_ind': group['ts_ind'].iloc[0],
                     'data': window_data.copy(),
+                    'day': day,
                     'start_time': start,
                     'end_time': end
                 })
@@ -276,14 +282,22 @@ class Dataset:
         else:
             ind = [int(i) for i in ind]
 
-        values, times, varis, obs_masks = [], [], [], []
+        values, times, varis, obs_masks, day_list = [], [], [], [], []
         for i in ind:
             window = self.windows[i]
             data = window['data']
+
+            day = window['day']
+            day_list.append(day)
+
             values.append(data['value'].tolist())
             times.append(data['minute'].tolist())
             varis.append([self.var_to_ind[v] for v in data['variable']])
             obs_masks.append([1] * len(data))
+
+        # Normalize day
+        max_day = 4
+        day_tensor = torch.FloatTensor(day_list).unsqueeze(1) / max_day
 
         # Pad sequences
         num_obs = [len(v) for v in values]
@@ -304,5 +318,6 @@ class Dataset:
             'varis': torch.LongTensor(padded_varis),
             'obs_mask': torch.FloatTensor(padded_obs_masks),
             'demo': torch.FloatTensor([self.demo[self.windows[i]['ts_ind']] for i in ind]),
+            'day': day_tensor,
             'labels': torch.FloatTensor(self.window_labels[ind])
         }

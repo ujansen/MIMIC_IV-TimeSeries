@@ -129,6 +129,7 @@ class Strats(TimeSeriesModel):
         super().__init__(args)
         self.cve_time = CVE(args)
         self.cve_value = CVE(args)
+        self.demo_day_proj = nn.Linear(args.hid_dim * 2, args.hid_dim)
         self.variable_emb = nn.Embedding(args.V, args.hid_dim)
         self.transformer = Transformer(args)
         self.fusion_att = FusionAtt(args)
@@ -136,7 +137,7 @@ class Strats(TimeSeriesModel):
         self.V = args.V
         
 
-    def forward(self, values, times, varis, obs_mask, demo,
+    def forward(self, values, times, varis, obs_mask, demo, day,
                 labels=None, forecast_values=None, forecast_mask=None):
         bsz, max_obs = values.size()
         device = values.device
@@ -147,9 +148,16 @@ class Strats(TimeSeriesModel):
                     mask_pos = (varis==v).int()*var_mask[:,v:v+1]
                     obs_mask = obs_mask*(1-mask_pos)
 
+        # day embedding
+        day_emb = self.day_emb(day)
+
         # demographics embedding
         demo_emb = self.demo_emb(demo) if self.args.model_type=='strats' \
                     else demo
+        
+        # combine day and demo
+        demo_day_emb = torch.cat((demo_emb, day_emb), dim=-1)
+        demo_day_emb = self.demo_day_proj(demo_day_emb)
         # initial triplet embedding
         time_emb = self.cve_time(times)
         value_emb = self.cve_value(values)
@@ -167,11 +175,13 @@ class Strats(TimeSeriesModel):
             ts_emb = (triplet_emb*attention_weights).sum(dim=1)
         else:
             ts_emb = (contextual_emb*attention_weights).sum(dim=1)
+
         # concat demo and ts_emb
-        ts_demo_emb = torch.cat((ts_emb, demo_emb), dim=-1)
+        # ts_demo_day_emb = torch.cat((ts_emb, demo_day_emb), dim=-1)
+
         # prediction/loss
         if self.pretrain:
-            return self.forecast_final(ts_demo_emb, forecast_values, forecast_mask)
-        logits = self.binary_head(self.forecast_head(ts_demo_emb))[:,0] \
-                    if self.finetune else self.binary_head(ts_demo_emb)[:,0]
+            return self.forecast_final(ts_emb, forecast_values, forecast_mask)
+        logits = self.binary_head(self.forecast_head(ts_emb))[:,0] \
+                    if self.finetune else self.binary_head(ts_emb)[:,0]
         return self.binary_cls_final(logits, labels)

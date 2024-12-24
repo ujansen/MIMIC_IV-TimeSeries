@@ -6,6 +6,7 @@ import torch
 from dataset import Dataset
 import os
 from tqdm import tqdm
+import pandas as pd
 
 class PretrainDataset(Dataset):
     def __init__(self, args):
@@ -20,13 +21,11 @@ class PretrainDataset(Dataset):
 
         data = data.loc[(data.minute >= 0) & (data.minute <= 5 * 24 * 60)]
         data.loc[(data.variable == 'Age') & (data.value > 200), 'value'] = 91.4
-        self.max_minute = 24 * 60
+        self.max_minute = 12 * 60
 
         # Remove test data and update train_ids for pretraining
         data = data.loc[~data.ts_id.isin(test_ids)]
         train_ids = np.setdiff1d(data.ts_id.unique(), val_ids)
-
-        # train_ids, val_ids = train_ids[:500], val_ids[:100]
 
         # Keep variables seen in training set only
         train_variables = data.loc[data.ts_id.isin(train_ids)].variable.unique()
@@ -103,7 +102,6 @@ class PretrainDataset(Dataset):
         self.V = args.V
         self.max_obs = args.max_obs
 
-
     def create_sliding_windows(self, data, window_size=720, step_size=360):
         """
         Create overlapping sliding windows for time-series data.
@@ -126,10 +124,14 @@ class PretrainDataset(Dataset):
                 window_data = group[(group['minute'] >= start) & (group['minute'] < end)]
                 if len(window_data) < 0.8 * window_size:  # Keep windows with at least 80% coverage
                     continue
+
+                # Compute ICU Day
+                day = start // (24 * 60)
                 sliding_windows.append({
                     'ts_id': ts_id,
                     'ts_ind': self.ts_id_to_ind[ts_id],
                     'data': window_data.copy(),
+                    'day': day,
                     'start_time': start,
                     'end_time': end
                 })
@@ -143,6 +145,7 @@ class PretrainDataset(Dataset):
         input_values = []
         input_times = []
         input_varis = []
+        day_list = []
         forecast_values = torch.zeros((bsz, self.V))
         forecast_mask = torch.zeros((bsz, self.V), dtype=torch.int)
 
@@ -179,6 +182,9 @@ class PretrainDataset(Dataset):
                 forecast_mask[b, vari] = 1
                 forecast_values[b, vari] = row['value']
 
+            day = window['day']
+            day_list.append(day)
+
         # Padding for batching
         num_obs = list(map(len, input_values))
         max_obs = max(num_obs)
@@ -187,6 +193,10 @@ class PretrainDataset(Dataset):
         times_padded = [x + [0] * l for x, l in zip(input_times, pad_lens)]
         varis_padded = [x + [0] * l for x, l in zip(input_varis, pad_lens)]
         obs_mask = [[1] * l1 + [0] * l2 for l1, l2 in zip(num_obs, pad_lens)]
+
+        # Normalize day
+        max_day = 4
+        day_tensor = torch.FloatTensor(day_list).unsqueeze(1) / max_day
 
         # Convert to tensors
         values_tensor = torch.FloatTensor(values_padded)
@@ -203,6 +213,7 @@ class PretrainDataset(Dataset):
             'varis': varis_tensor,
             'obs_mask': obs_mask_tensor,
             'demo': demo_tensor,
+            'day': day_tensor,
             'forecast_values': forecast_values,
             'forecast_mask': forecast_mask,
         }
