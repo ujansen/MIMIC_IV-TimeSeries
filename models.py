@@ -34,30 +34,39 @@ class TimeSeriesModel(nn.Module):
                                         nn.Tanh(),
                                         nn.Linear(args.hid_dim*2, args.hid_dim))
         self.day_emb = nn.Linear(1, args.hid_dim)
+        self.notes_emb = nn.Sequential(nn.Linear(args.notes_dim, args.hid_dim*2),
+                                        nn.Tanh(),
+                                        nn.Linear(args.hid_dim*2, args.hid_dim))
 
         # Change to 2 when including demo/day embedding
-        ts_demo_emb_size = args.hid_dim*1
+        # 1 = demo embedding only
+        # 2 = demo and day embedding
+        # 3 = demo and day and notes embedding
+        ts_emb_size = args.hid_dim*2
+        notes_emb_size = args.hid_dim
         
         self.pretrain = args.pretrain==1
         self.finetune = args.load_ckpt_path is not None
         if self.pretrain:
-            self.forecast_head = nn.Linear(ts_demo_emb_size, args.V)
+            self.forecast_head = nn.Linear(notes_emb_size, args.V)
         elif self.finetune:
-            self.forecast_head = nn.Linear(ts_demo_emb_size, args.V)
-            self.binary_head = nn.Linear(args.V,1)
+            self.forecast_head = nn.Linear(ts_emb_size, args.V)
+            self.notes_head = nn.Sequential(nn.Linear(notes_emb_size, args.hid_dim),
+                                        nn.Tanh(),
+                                        nn.Linear(args.hid_dim, args.V))
+            self.binary_head = nn.Linear(args.V * 2, 1) # Keep 2 for multilabel 1 for binary
             self.pos_class_weight = torch.tensor(args.pos_class_weight)
         else:
-            self.binary_head = nn.Linear(ts_demo_emb_size,1)
+            self.binary_head = nn.Linear(args.hid_dim * 3, 1) # Keep 2 for multilabel 1 for binary
             self.pos_class_weight = torch.tensor(args.pos_class_weight)
 
     def binary_cls_final(self, logits, labels):
         if labels is not None:
-            return F.binary_cross_entropy_with_logits(logits, labels, 
-                                    pos_weight=self.pos_class_weight)
+            return F.binary_cross_entropy_with_logits(logits, labels,
+                                                    pos_weight=self.pos_class_weight)
         else:
             return torch.sigmoid(logits)
         
     def forecast_final(self, ts_emb, forecast_values, forecast_mask):
         pred = self.forecast_head(ts_emb) # bsz, V
         return (forecast_mask*(pred-forecast_values)**2).sum()/forecast_mask.sum()
-        

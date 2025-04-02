@@ -137,7 +137,7 @@ class Strats(TimeSeriesModel):
         self.V = args.V
         
 
-    def forward(self, values, times, varis, obs_mask, demo, day,
+    def forward(self, values, times, varis, obs_mask, demo, notes, notes_mask, day,
                 labels=None, forecast_values=None, forecast_mask=None):
         bsz, max_obs = values.size()
         device = values.device
@@ -176,12 +176,22 @@ class Strats(TimeSeriesModel):
         else:
             ts_emb = (contextual_emb*attention_weights).sum(dim=1)
 
+        # process notes
+        notes_emb = self.notes_emb(notes) * notes_mask
+
         # concat demo and ts_emb
-        # ts_demo_day_emb = torch.cat((ts_emb, demo_day_emb), dim=-1)
+        ts_demo_day_emb = torch.cat((ts_emb, demo_day_emb), dim=-1)
+        # ts_demo_emb = torch.cat((ts_emb, demo_emb), dim=-1)
+
+        # concat demo, day, notes
+        combined_emb_demo_day_notes = torch.cat((ts_emb, demo_day_emb, notes_emb), dim=-1)
 
         # prediction/loss
         if self.pretrain:
-            return self.forecast_final(ts_emb, forecast_values, forecast_mask)
-        logits = self.binary_head(self.forecast_head(ts_emb))[:,0] \
-                    if self.finetune else self.binary_head(ts_emb)[:,0]
+            return self.forecast_final(combined_emb_demo_day_notes, forecast_values, forecast_mask)
+        if self.finetune:
+            combined_notes_forecast = torch.cat((self.forecast_head(ts_demo_day_emb), self.notes_head(notes_emb)), dim=-1)
+            logits = self.binary_head(combined_notes_forecast)[:, 0]
+        else:
+            logits = self.binary_head(combined_emb_demo_day_notes)[:,0] 
         return self.binary_cls_final(logits, labels)
