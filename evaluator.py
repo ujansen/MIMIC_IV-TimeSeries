@@ -33,6 +33,7 @@ class Evaluator:
             return {'auroc': None, 'auprc': None, 'minrp': None, 'accuracy': None}
         
         true, pred = torch.cat(true), torch.cat(pred)
+        # print("PREDICTIONS ARE: ", pred)
 
         unique_classes = true.unique()
         if len(unique_classes) < 2:
@@ -41,7 +42,7 @@ class Evaluator:
             )
             return {'auroc': None, 'auprc': None, 'minrp': None, 'accuracy': None}
         
-        pred_labels = (pred > 0.5).float()
+        pred_labels = (pred >= 0.5).float()
         correct = (pred_labels == true).sum().item()
         accuracy = correct / len(true)
 
@@ -60,3 +61,47 @@ class Evaluator:
             self.args.logger.write('Result on '+split+' split at train step '
                             +str(train_step)+': '+str(result))
         return result
+
+        # result = {
+        #     'auroc': {},
+        #     'auprc': {},
+        #     'minrp': {},
+        #     'accuracy': {}
+        # }
+
+        # days = ['7 days', '30 days']
+
+        # for c in range(2):
+        #     true_c = true[:, c]
+        #     pred_c = pred[:, c]
+            
+        #     # Skip if only one class present (metrics undefined)
+        #     if len(true_c.unique()) < 2:
+        #         self.args.logger.write(f"Warning: Only one class present in class {c}. Skipping metrics.")
+        #         result['auroc'][days[c]] = None
+        #         result['auprc'][days[c]] = None
+        #         result['minrp'][days[c]] = None
+        #         result['accuracy'][days[c]] = None
+        #         continue
+
+        #     # AUROC
+        #     result['auroc'][days[c]] = roc_auc_score(true_c, pred_c)
+
+        #     # AUPRC and MinRP
+        #     precision, recall, _ = precision_recall_curve(true_c, pred_c)
+        #     if np.isnan(precision).any() or np.isnan(recall).any():
+        #         self.args.logger.write(f"Warning: NaN in precision/recall for class {c}. Skipping PR metrics.")
+        #         result['auprc'][days[c]] = None
+        #         result['minrp'][days[c]] = None
+        #     else:
+        #         result['auprc'][days[c]] = auc(recall, precision)
+        #         result['minrp'][days[c]] = np.minimum(precision, recall).max()
+
+        #     # Accuracy
+        #     pred_labels = (pred_c >= 0.5).float()
+        #     result['accuracy'][days[c]] = (pred_labels == true_c).float().mean().item()
+
+        # if train_step is not None:
+        #     self.args.logger.write('Result on ' + split + ' split at train step '
+        #                            + str(train_step) + ': ' + str(result))
+        # return result

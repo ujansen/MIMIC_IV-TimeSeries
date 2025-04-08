@@ -63,7 +63,7 @@ def process_log_file(file_path):
     
     return data_collection
 
-file_path = './strats_output_14066025.log'
+file_path = './strats_output_14147019.log'
 results = process_log_file(file_path)
 
 consolidated_results = {}
@@ -78,7 +78,7 @@ for entry in results:
         'test': entry['Final test res']
     }
 
-json_file = 'consolidated_data.json'
+json_file = 'consolidated_data_revised_icu_day_train_scratch.json'
 with open(json_file, 'w') as file:
     json.dump(consolidated_results, file, indent=4)
 
